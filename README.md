@@ -63,4 +63,4 @@ result = compress_context(
 
 ## Built for
 
-UCET Hackathon 2026 — Pixels to Possibilities
+vCET Hackathon 2026 — Pixels to Possibilities
