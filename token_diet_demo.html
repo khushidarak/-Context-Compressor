@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Token-Diet — Dynamic Context Compressor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap');
+
+  :root{
+    --bg:#0a0e0c;
+    --panel:#101512;
+    --panel-2:#161d19;
+    --border:#26332c;
+    --green:#5eff9f;
+    --green-dim:#2f9e63;
+    --amber:#ffb454;
+    --red:#ff6b6b;
+    --text:#d9e6df;
+    --text-dim:#7c8f85;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'JetBrains Mono', monospace;
+    padding:32px 24px 48px;
+  }
+  .wrap{max-width:920px;margin:0 auto;}
+
+  .eyebrow{
+    font-size:12px;letter-spacing:0.18em;color:var(--green-dim);
+    text-transform:uppercase;margin-bottom:6px;
+  }
+  h1{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:32px;font-weight:700;margin:0 0 4px;color:var(--text);
+    display:flex;align-items:center;gap:10px;
+  }
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--green);
+    box-shadow:0 0 8px var(--green);animation:pulse 1.8s ease-in-out infinite;}
+  @media (prefers-reduced-motion: no-preference){
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+  }
+  .sub{color:var(--text-dim);font-size:13px;margin:0 0 28px;}
+
+  .panel{
+    background:var(--panel);border:1px solid var(--border);
+    border-radius:10px;padding:20px;margin-bottom:20px;
+  }
+  label{
+    display:block;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;
+    color:var(--text-dim);margin-bottom:8px;
+  }
+  input[type=text], textarea{
+    width:100%;background:var(--panel-2);border:1px solid var(--border);
+    border-radius:6px;color:var(--text);font-family:inherit;font-size:14px;
+    padding:12px;resize:vertical;line-height:1.6;
+  }
+  input[type=text]:focus, textarea:focus{outline:1px solid var(--green-dim);}
+  textarea{min-height:120px;margin-bottom:16px;}
+  .row{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;}
+  .row > div{flex:1;min-width:220px;}
+
+  .slider-row{display:flex;align-items:center;gap:12px;margin-top:16px;}
+  input[type=range]{flex:1;accent-color:var(--green);}
+  .slider-val{font-size:13px;color:var(--green);min-width:70px;text-align:right;}
+
+  button{
+    background:var(--green);color:#04140a;border:none;border-radius:6px;
+    padding:13px 22px;font-family:inherit;font-weight:700;font-size:13px;
+    letter-spacing:0.05em;text-transform:uppercase;cursor:pointer;margin-top:18px;
+  }
+  button:hover{background:#7dffb5;}
+  button:active{transform:translateY(1px);}
+  #err{color:var(--red);font-size:13px;margin-top:8px;display:none;}
+
+  .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;}
+  .metric{
+    background:var(--panel);border:1px solid var(--border);border-radius:10px;
+    padding:16px;text-align:center;
+  }
+  .metric .val{font-family:'Space Grotesk',sans-serif;font-size:28px;font-weight:700;color:var(--green);}
+  .metric .lbl{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-top:4px;}
+
+  .bars{margin-bottom:8px;}
+  .bar-row{display:flex;align-items:center;gap:12px;margin-bottom:10px;}
+  .bar-label{width:150px;font-size:12px;color:var(--text-dim);flex-shrink:0;}
+  .bar-track{flex:1;background:var(--panel-2);border-radius:5px;height:18px;overflow:hidden;border:1px solid var(--border);}
+  .bar-fill{height:100%;border-radius:5px;transition:width .5s ease;}
+  .bar-fill.before{background:var(--amber);}
+  .bar-fill.after{background:var(--green);}
+  .bar-num{width:70px;font-size:12px;text-align:right;color:var(--text);}
+
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media (max-width:640px){.compare{grid-template-columns:1fr;} .metrics{grid-template-columns:1fr;}}
+  .compare h3{
+    font-family:'Space Grotesk',sans-serif;font-size:13px;text-transform:uppercase;
+    letter-spacing:0.08em;margin:0 0 10px;color:var(--text-dim);
+  }
+  .compare .panel{margin-bottom:0;min-height:140px;}
+  .sent{font-size:13px;line-height:1.7;}
+  .kept{color:var(--text);}
+  .dropped{color:#4a5750;text-decoration:line-through;text-decoration-color:#3a453e;}
+
+  .empty{color:var(--text-dim);font-size:13px;text-align:center;padding:24px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Live prototype</div>
+  <h1><span class="dot"></span>token-diet<span style="color:var(--text-dim)">//</span>compressor</h1>
+  <p class="sub">Local BM25 sentence scoring — strips low-relevance text before it ever reaches the LLM. No API calls made during scoring.</p>
+
+  <div class="panel">
+    <label for="query">Query</label>
+    <input type="text" id="query" value="What causes high latency in RAG systems?">
+
+    <div style="height:16px"></div>
+
+    <label for="context">Retrieved context (paste one or more chunks)</label>
+    <textarea id="context">Retrieval-augmented generation systems, often abbreviated as RAG, have become extremely popular in recent years for building question answering applications. High latency in RAG systems is often caused by passing overly long, unfiltered context chunks directly into the large language model. Many teams simply retrieve the top-k results from a vector database without any further processing. This balloons the number of input tokens the model has to process before it can even begin generating a response, which directly increases time-to-first-token. Additionally, redundant phrasing and filler sentences within retrieved documents add no new information but still consume valuable context window space and increase compute cost. It is worth noting that many teams are still exploring best practices in this fast-moving field. Furthermore, verbose retrieved passages often repeat the same facts using different wording across multiple chunks, which compounds the token bloat problem even further.</textarea>
+
+    <div class="slider-row">
+      <label style="margin:0;white-space:nowrap;">Keep ratio</label>
+      <input type="range" id="ratio" min="10" max="90" value="40">
+      <div class="slider-val" id="ratioVal">40%</div>
+    </div>
+
+    <button id="run">Compress context</button>
+    <div id="err">Enter a query and some context text first.</div>
+  </div>
+
+  <div id="results" style="display:none">
+    <div class="metrics">
+      <div class="metric"><div class="val" id="mRatio">—</div><div class="lbl">Compression ratio</div></div>
+      <div class="metric"><div class="val" id="mWords">—</div><div class="lbl">Words removed</div></div>
+      <div class="metric"><div class="val" id="mLatency">—</div><div class="lbl">Latency drop</div></div>
+    </div>
+
+    <div class="panel bars">
+      <label style="margin-bottom:14px;">Simulated time-to-first-token</label>
+      <div class="bar-row">
+        <div class="bar-label">Before compression</div>
+        <div class="bar-track"><div class="bar-fill before" id="barBefore" style="width:0%"></div></div>
+        <div class="bar-num" id="numBefore">0 ms</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">After compression</div>
+        <div class="bar-track"><div class="bar-fill after" id="barAfter" style="width:0%"></div></div>
+        <div class="bar-num" id="numAfter">0 ms</div>
+      </div>
+    </div>
+
+    <div class="compare">
+      <div>
+        <h3>Original context</h3>
+        <div class="panel" id="origPanel"></div>
+      </div>
+      <div>
+        <h3>Sent to LLM</h3>
+        <div class="panel" id="compPanel"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function tokenize(s){
+  return (s.toLowerCase().match(/\b[a-z0-9]+\b/g) || []);
+}
+function splitSentences(text){
+  text = text.trim().replace(/\s+/g,' ');
+  if(!text) return [];
+  const parts = text.split(/(?<=[.!?])\s+/);
+  return parts.map(p=>p.trim()).filter(Boolean);
+}
+function bm25Scores(query, sentences){
+  const k1=1.5, b=0.75;
+  const docs = sentences.map(tokenize);
+  const N = docs.length;
+  const avgdl = docs.reduce((a,d)=>a+d.length,0)/N;
+  const df = {};
+  docs.forEach(d=>{
+    new Set(d).forEach(t=>{ df[t]=(df[t]||0)+1; });
+  });
+  const qTokens = tokenize(query);
+  return docs.map(d=>{
+    const tf = {};
+    d.forEach(t=>{ tf[t]=(tf[t]||0)+1; });
+    let score = 0;
+    qTokens.forEach(t=>{
+      if(!tf[t]) return;
+      const n = df[t]||0;
+      const idf = Math.log(1 + (N - n + 0.5)/(n + 0.5));
+      const num = tf[t]*(k1+1);
+      const den = tf[t] + k1*(1 - b + b*(d.length/avgdl));
+      score += idf * (num/den);
+    });
+    return score;
+  });
+}
+
+document.getElementById('ratio').addEventListener('input', e=>{
+  document.getElementById('ratioVal').textContent = e.target.value + '%';
+});
+
+document.getElementById('run').addEventListener('click', ()=>{
+  const query = document.getElementById('query').value.trim();
+  const context = document.getElementById('context').value.trim();
+  const errEl = document.getElementById('err');
+
+  if(!query || !context){
+    errEl.style.display='block';
+    document.getElementById('results').style.display='none';
+    return;
+  }
+  errEl.style.display='none';
+
+  const sentences = splitSentences(context);
+  const scores = bm25Scores(query, sentences);
+  const ratio = parseInt(document.getElementById('ratio').value,10)/100;
+  const nKeep = Math.max(1, Math.round(sentences.length*ratio));
+
+  const ranked = scores.map((s,i)=>[s,i]).sort((a,b)=>b[0]-a[0]);
+  const keepSet = new Set(ranked.slice(0,nKeep).map(x=>x[1]));
+
+  const originalWords = tokenize(sentences.join(' ')).length;
+  const keptSentences = sentences.filter((_,i)=>keepSet.has(i));
+  const compressedWords = tokenize(keptSentences.join(' ')).length;
+  const compressionPct = originalWords ? Math.round((1 - compressedWords/originalWords)*1000)/10 : 0;
+
+  const msPerToken = 2.5;
+  const before = originalWords*msPerToken;
+  const after = compressedWords*msPerToken;
+  const latencyDropPct = before ? Math.round((1-after/before)*1000)/10 : 0;
+
+  document.getElementById('mRatio').textContent = compressionPct + '%';
+  document.getElementById('mWords').textContent = (originalWords-compressedWords)+' / '+originalWords;
+  document.getElementById('mLatency').textContent = latencyDropPct + '%';
+
+  const maxBar = Math.max(before, after, 1);
+  document.getElementById('barBefore').style.width = (before/maxBar*100)+'%';
+  document.getElementById('barAfter').style.width = (after/maxBar*100)+'%';
+  document.getElementById('numBefore').textContent = Math.round(before)+' ms';
+  document.getElementById('numAfter').textContent = Math.round(after)+' ms';
+
+  document.getElementById('origPanel').innerHTML = sentences.map(s=>
+    `<span class="sent kept">${s} </span>`).join('');
+
+  document.getElementById('compPanel').innerHTML = sentences.map((s,i)=>
+    keepSet.has(i)
+      ? `<span class="sent kept">${s} </span>`
+      : `<span class="sent dropped">${s} </span>`
+  ).join('');
+
+  document.getElementById('results').style.display='block';
+});
+
+document.getElementById('run').click();
+</script>
+</body>
+</html>
